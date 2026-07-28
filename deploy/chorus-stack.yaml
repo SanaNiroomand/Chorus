@@ -1,0 +1,196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Chorus Telegram bot on a single EC2 instance. No inbound access; the bot only makes outbound calls.
+
+Parameters:
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: Latest Amazon Linux 2023 arm64 AMI, resolved at deploy time.
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-02eeca48dc49c502a
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  BotSecretArn:
+    Type: String
+    Default: arn:aws:secretsmanager:eu-central-1:102380859779:secret:chorus/bot-1bIt4i
+  DeployKeySecretArn:
+    Type: String
+    Default: arn:aws:secretsmanager:eu-central-1:102380859779:secret:chorus/deploy-key-Fyy8L6
+  RepoUrl:
+    Type: String
+    Default: git@github.com:SanaNiroomand/Chorus.git
+
+Resources:
+
+  # ---------- identity ----------
+  BotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Role for the Chorus bot instance. Session Manager access plus read of its own two secrets.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-own-secrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Scoped to these two secret ARNs only, and only over HTTPS.
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !Ref BotSecretArn
+                  - !Ref DeployKeySecretArn
+                Condition:
+                  Bool:
+                    aws:SecureTransport: 'true'
+              # Secrets use the AWS managed key aws/secretsmanager, whose key policy
+              # already grants the account decrypt access through Secrets Manager,
+              # so no explicit kms statement is needed here.
+      Tags:
+        - { Key: Application, Value: chorus-bot }
+        - { Key: ManagedBy, Value: cloudformation }
+
+  BotInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref BotRole
+
+  # ---------- network ----------
+  BotSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Chorus bot. No inbound rules; long polling is outbound only.
+      VpcId: !Ref VpcId
+      # Deliberately no SecurityGroupIngress. Shell access is via SSM Session Manager.
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS to Telegram, OpenAI, LRCLIB, GitHub, AWS APIs
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for package repositories
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH out to GitHub for the git clone
+      Tags:
+        - { Key: Name, Value: chorus-bot-sg }
+        - { Key: Application, Value: chorus-bot }
+
+  # ---------- compute ----------
+  BotInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      IamInstanceProfile: !Ref BotInstanceProfile
+      SecurityGroupIds:
+        - !Ref BotSecurityGroup
+      MetadataOptions:
+        HttpTokens: required          # IMDSv2 only
+        HttpPutResponseHopLimit: 1
+        HttpEndpoint: enabled
+      CreditSpecification:
+        CPUCredits: standard          # bot is near idle; standard avoids surprise burst charges
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - { Key: Name, Value: chorus-bot }
+        - { Key: Application, Value: chorus-bot }
+        - { Key: Environment, Value: development }
+        - { Key: WorkloadType, Value: application-server }
+        - { Key: ManagedBy, Value: cloudformation }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee /var/log/chorus-bootstrap.log) 2>&1
+
+          dnf -y update
+          dnf -y install git python3.11 python3.11-pip
+
+          id -u chorus &>/dev/null || useradd --system --home-dir /opt/chorus --shell /usr/sbin/nologin chorus
+
+          # --- clone the private repo using the deploy key from Secrets Manager ---
+          install -d -m 0700 /root/.ssh
+          aws secretsmanager get-secret-value --secret-id ${DeployKeySecretArn} \
+            --region ${AWS::Region} --query SecretString --output text > /root/.ssh/id_ed25519
+          chmod 0600 /root/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> /root/.ssh/known_hosts 2>/dev/null
+          GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            git clone --depth 1 ${RepoUrl} /opt/chorus
+
+          python3.11 -m venv /opt/chorus/.venv
+          /opt/chorus/.venv/bin/pip install --upgrade pip
+          /opt/chorus/.venv/bin/pip install -r /opt/chorus/requirements-bot.txt
+          chown -R chorus:chorus /opt/chorus
+
+          # --- secret fetcher: runs at every boot, writes a root-only env file ---
+          install -d -m 0700 /etc/chorus
+          cat > /usr/local/bin/chorus-fetch-secrets <<'EOS'
+          #!/bin/bash
+          set -euo pipefail
+          REGION="$1"; SECRET_ID="$2"; OUT=/etc/chorus/env
+          umask 077
+          aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --region "$REGION" \
+            --query SecretString --output text \
+          | python3 -c 'import json,sys; [print(f"{k}={v}") for k,v in json.load(sys.stdin).items()]' > "$OUT"
+          chmod 0600 "$OUT"
+          EOS
+          chmod 0755 /usr/local/bin/chorus-fetch-secrets
+
+          cat > /etc/systemd/system/chorus-secrets.service <<EOS
+          [Unit]
+          Description=Fetch Chorus bot secrets from AWS Secrets Manager
+          After=network-online.target
+          Wants=network-online.target
+          Before=chorus-bot.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/local/bin/chorus-fetch-secrets ${AWS::Region} ${BotSecretArn}
+
+          [Install]
+          WantedBy=multi-user.target
+          EOS
+
+          install -m 0644 /opt/chorus/deploy/chorus-bot.service /etc/systemd/system/chorus-bot.service
+          systemctl daemon-reload
+          systemctl enable --now chorus-secrets.service
+          systemctl enable --now chorus-bot.service
+
+Outputs:
+  InstanceId:
+    Value: !Ref BotInstance
+  SessionManagerCommand:
+    Description: Open a shell on the instance (no SSH key needed)
+    Value: !Sub 'aws ssm start-session --target ${BotInstance} --region ${AWS::Region}'
+  LogsCommand:
+    Description: Follow the bot log once connected
+    Value: 'sudo journalctl -u chorus-bot -f'
