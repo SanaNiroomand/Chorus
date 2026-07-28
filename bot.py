@@ -133,6 +133,10 @@ def reset(st):
 
 def build_worksheet(chat, st, line_texts, matched):
     line_texts = line_texts[:MAX_LINES]
+    # The lyric lookup above takes ~1s; this AI call is the real wait (~15s),
+    # so say so rather than leaving the user staring at "finding the lyrics".
+    send(chat, "🧠 Got the lyrics. Now picking the words worth learning — "
+               "this is the slow part, about 15 seconds…")
     chosen = choose_blanks(line_texts, st.get("level", "intermediate"))
 
     blanks, out_lines, n = [], [], 0

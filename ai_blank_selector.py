@@ -55,12 +55,14 @@ A good blank is one of:
 
 If nothing on a line is pedagogically worth blanking, return zero blanks for it.
 
-Return ONLY a JSON object with this exact shape:
+Return ONLY a JSON object with this exact shape. IMPORTANT: include ONLY the
+lines you actually chose to blank. Do NOT echo back lines you left alone -
+omit them entirely. Keep every "why" to one short sentence.
 {
   "level": "<the level you were given>",
   "lines": [
     {
-      "original": "<the exact original line>",
+      "original": "<the exact original line, copied verbatim>",
       "blanked":  "<the line with each chosen answer replaced by ___>",
       "blanks": [
         {
