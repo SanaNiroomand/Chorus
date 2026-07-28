@@ -49,7 +49,25 @@ confirmed for this account - check before leaving it running.
 
 ## Redeploying later
 
-`git pull && sudo systemctl restart chorus-bot` on the instance.
+On the instance:
+
+```
+cd /opt/chorus
+sudo git -c safe.directory=/opt/chorus pull
+sudo chown -R chorus:chorus /opt/chorus
+sudo systemctl restart chorus-bot
+```
+
+The `-c safe.directory=/opt/chorus` is required: the checkout is owned by the
+`chorus` service account while git runs as root, so plain `git pull` aborts with
+"detected dubious ownership". Setting it with `git config --global` does not
+survive separate SSM command shells, so pass it inline.
+
+Always confirm the new code actually landed rather than trusting a clean restart:
+
+```
+git -c safe.directory=/opt/chorus rev-parse --short HEAD
+```
 
 ## Known gotchas
 
