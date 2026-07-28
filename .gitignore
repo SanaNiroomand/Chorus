@@ -1,0 +1,12 @@
+# Secrets / local config
+.env
+
+# Private lyric text (treated as internal — see project constraints)
+lines.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# Large local model download (unused now that we're on the OpenAI API)
+Llama-3.2-3B-Instruct/
