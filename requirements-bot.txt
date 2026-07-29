@@ -1,6 +1,0 @@
-# Runtime deps for the Telegram bot only (bot.py).
-# The web app's server deps (starlette/uvicorn) are deliberately excluded.
-openai>=1.40.0
-python-dotenv>=1.0.1
-httpx>=0.27
-av>=11

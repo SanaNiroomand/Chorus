@@ -6,8 +6,7 @@ Given an artist + title it:
   2. runs the AI blank-selector on the lines,
   3. keeps a sparse set of non-repeating, high-value blanks.
 
-Both the web app (server.py) and the Telegram bot (bot.py) build on this, so
-the pedagogy lives in exactly one place.
+bot.py builds on this, so the pedagogy lives in exactly one place.
 
 Lyrics from LRCLIB are crowdsourced and NOT licensed — fine for a private
 prototype, but swap to a licensed source before any public/commercial launch.
@@ -125,30 +124,3 @@ def fetch_lyric_lines(artist, title):
     if not lines:
         raise ExerciseError("Found the song but couldn't read the lyrics.")
     return lines, {"artist": best.get("artistName"), "title": best.get("trackName")}
-
-
-def make_exercise(artist, title, level="intermediate"):
-    """Return {matched, level, blank_count, lines} or raise ExerciseError.
-
-    `lines` is every lyric line in order (for read-along); only a sparse few
-    carry a `blank` dict — the rest have blank=None.
-    """
-    line_texts, matched = fetch_lyric_lines(artist, title)
-    level = (level or "intermediate").strip()
-    chosen = choose_blanks(line_texts, level)
-
-    lines = []
-    for i, text in enumerate(line_texts):
-        b = chosen.get(i)
-        lines.append({
-            "text": text,
-            "blank": b,
-            "blanked": re.sub(re.escape(b["answer"]), "___", text, count=1) if b else None,
-        })
-
-    return {
-        "matched": matched,
-        "level": level,
-        "blank_count": len(chosen),
-        "lines": lines,
-    }
