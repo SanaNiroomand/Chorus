@@ -68,8 +68,53 @@ def _fetch_lyrics(artist, title):
     return results
 
 
+# Function words: never interesting as a blank, so the fallback skips them.
+_STOPWORDS = {
+    "that", "this", "with", "your", "from", "have", "they", "them", "then",
+    "were", "will", "what", "when", "would", "could", "should", "there",
+    "their", "been", "just", "like", "know", "want", "come", "into", "only",
+    "over", "than", "some", "more", "make", "take", "here", "very", "much",
+    "cant", "dont", "wont", "gonna", "wanna", "yeah", "ooh", "aah", "oooh",
+}
+
+
+def _fallback_blanks(line_texts, limit=MAX_BLANKS):
+    """Pick something reasonable when the model declines to choose anything.
+
+    Longest content word per line, no repeats, spread across the song. These
+    are weaker than the model's picks — chosen for length rather than teaching
+    value — which is why the caller warns the learner.
+    """
+    candidates = []
+    for i, text in enumerate(line_texts):
+        best = ""
+        for w in re.findall(r"[^\W\d_]{4,}", text, re.UNICODE):
+            if w.lower() in _STOPWORDS:
+                continue
+            if len(w) > len(best):
+                best = w
+        if best:
+            candidates.append((len(best), i, best))
+
+    candidates.sort(key=lambda c: -c[0])          # longest words first
+    used, chosen = set(), {}
+    for _, i, word in candidates:
+        if len(chosen) >= limit:
+            break
+        if norm(word) in used:
+            continue
+        used.add(norm(word))
+        chosen[i] = {"answer": word, "category": "vocab",
+                     "why": "Picked automatically — worth checking you heard it right."}
+    return dict(sorted(chosen.items()))
+
+
 def choose_blanks(line_texts, level="intermediate"):
-    """Return {line_index: {answer, category, why}} — sparse and non-repeating.
+    """Return ({line_index: {answer, category, why}}, warning_or_None).
+
+    Always returns blanks if the lyrics contain any usable words: when the
+    model picks nothing, a simple heuristic fills in rather than refusing to
+    build an exercise at all. The warning tells the caller to say so.
 
     Works on any lyric lines (from LRCLIB or supplied by the user).
     """
@@ -99,9 +144,17 @@ def choose_blanks(line_texts, level="intermediate"):
                          "category": b.get("category", ""),
                          "why": b.get("why", "")}
             break
+    if chosen:
+        return chosen, None
+
+    # The model found nothing it considered teachable. Rather than refuse to
+    # build an exercise, fall back to a heuristic and say the picks are weaker.
+    chosen = _fallback_blanks(line_texts)
     if not chosen:
-        raise ExerciseError("Couldn't find anything worth blanking here.")
-    return chosen
+        raise ExerciseError("These lyrics don't have enough words to work with.")
+    return chosen, ("I couldn't find much genuinely worth teaching in this one, "
+                    "so these blanks are simple word-recognition rather than "
+                    "idioms or grammar.")
 
 
 def fetch_lyric_lines(artist, title):

@@ -224,7 +224,7 @@ def build_worksheet(chat, st, line_texts, matched):
     send_progress(chat, st, "🧠 Got the lyrics. Now picking the words worth learning — "
                             "this is the slow part, about 15 seconds…")
     try:
-        chosen = choose_blanks(line_texts, st.get("level", "intermediate"))
+        chosen, warning = choose_blanks(line_texts, st.get("level", "intermediate"))
     except ExerciseError as e:
         # Without this the progress message would sit there forever with no
         # explanation of why nothing arrived.
@@ -250,6 +250,8 @@ def build_worksheet(chat, st, line_texts, matched):
     st["sheet"] = "\n".join(out_lines)
 
     clear_progress(chat, st)   # the waiting is over; tidy the chatter away
+    if warning:
+        send(chat, "⚠️ {}".format(esc(warning)))
     present_worksheet(chat, st)
 
 
