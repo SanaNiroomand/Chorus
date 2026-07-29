@@ -213,7 +213,9 @@ def reset(st):
     st.pop("blanks", None)
     st.pop("matched", None)
     st.pop("sheet", None)
+    st.pop("lines", None)
     st.pop("facts", None)
+    st.pop("concepts", None)
     st.pop("progress_msgs", None)   # ids from a previous song are stale now
     st["phase"] = None
 
@@ -249,8 +251,10 @@ def build_worksheet(chat, st, line_texts, matched):
 
     st["blanks"], st["matched"], st["phase"] = blanks, matched, "await"
     # Kept so "Try again" can re-present the same exercise without paying for
-    # another AI call.
+    # another AI call. The plain lines are kept too, so "About this song" can
+    # spot references that actually occur in the lyrics.
     st["sheet"] = "\n".join(out_lines)
+    st["lines"] = line_texts
 
     clear_progress(chat, st)   # the waiting is over; tidy the chatter away
     present_worksheet(chat, st)
@@ -383,23 +387,33 @@ def show_facts(chat, st):
         send(chat, "I don't know which release this was, so I can't look it up.")
         return
 
-    if not st.get("facts"):
+    if "facts" not in st:
         send_progress(chat, st, "💡 Looking up the story behind this one…")
         try:
-            data = json.loads(song_facts(matched.get("artist"), matched.get("title")))
+            data = json.loads(song_facts(matched.get("artist"), matched.get("title"),
+                                         lines=st.get("lines")))
         except Exception:
             clear_progress(chat, st)
             send(chat, "😕 Couldn't fetch anything about this song right now.")
             return
         clear_progress(chat, st)
-        if not data.get("known") or not data.get("facts"):
+        if not data.get("known") or not (data.get("facts") or data.get("concepts")):
             send(chat, "🤷 I don't know enough about this song to say anything reliable.")
             return
-        st["facts"] = data["facts"]
+        st["facts"] = data.get("facts") or []
+        st["concepts"] = data.get("concepts") or []
 
-    body = "\n\n".join("• {}".format(esc(f)) for f in st["facts"])
+    parts = []
+    if st["facts"]:
+        parts.append("\n\n".join("• {}".format(esc(f)) for f in st["facts"]))
+    if st.get("concepts"):
+        parts.append("📚 <b>Things mentioned in this song</b>\n\n" + "\n\n".join(
+            "<b>{}</b> — {}".format(esc(c.get("term", "")), esc(c.get("explanation", "")))
+            for c in st["concepts"]))
+
     send(chat, "💡 <b>About {} — {}</b>\n\n{}".format(
-        esc(clean_artist(matched.get("artist"))), esc(matched.get("title")), body))
+        esc(clean_artist(matched.get("artist"))), esc(matched.get("title")),
+        "\n\n".join(parts)))
 
 
 def on_callback(cq):

@@ -107,35 +107,57 @@ def select_blanks(lines, level="intermediate", model=MODEL):
 
 
 FACTS_PROMPT = """\
-You are a music writer giving a language learner brief, interesting context
-about a song they have just practised.
+You help a language learner understand a song they have just practised. You
+give two kinds of help.
 
-Give 3 or 4 short facts. Good material: what the song is really about, the
-story behind how it came to be written, its cultural impact or chart history,
-notable recording details, or what the title means idiomatically.
+1. "facts" — 2 or 3 short points of background: what the song is really about,
+   the story behind how it came to be written, its cultural impact, or notable
+   recording details. Skip anything obvious from the title.
+
+2. "concepts" — the things IN the song a non-native listener would not know:
+   cultural or artistic references (an art movement, a film, a brand), places,
+   historical figures, regional slang, or a phrase whose real meaning is not
+   its literal one. This is the more valuable half. For example, a song that
+   mentions "Art Deco" should explain what Art Deco is and what invoking it
+   suggests about the person being described.
 
 Rules:
-- Do NOT quote or reproduce song lyrics. Describe and explain in your own words.
-- Be accurate. If you are not confident you know this specific song, set
-  "known" to false and return no facts rather than inventing any.
-- One or two sentences per fact, plain language, in English.
-- Skip anything a listener could work out just from the title.
+- Do NOT quote or reproduce song lyrics anywhere in your answer. Name the term
+  or reference on its own and explain it in your own words.
+- Only list concepts that genuinely appear in the lyrics you are given.
+- Explain what it is AND why it matters in this song, in 1-2 sentences.
+- Skip ordinary vocabulary a dictionary would cover; this is for references and
+  cultural knowledge, not word definitions.
+- Be accurate. If you do not recognise the song, set "known" to false and
+  return nothing rather than inventing anything.
+- Plain language, in English. It is fine to return an empty concepts list if
+  the song genuinely has no such references.
 
 Return ONLY a JSON object:
-{"known": true, "facts": ["...", "...", "..."]}
+{"known": true,
+ "facts": ["...", "..."],
+ "concepts": [{"term": "Art Deco", "explanation": "..."}]}
 """
 
 
-def song_facts(artist, title, model=MODEL):
-    """Return the raw JSON string of background facts about a song."""
+def song_facts(artist, title, lines=None, model=MODEL):
+    """Return the raw JSON string of background facts and concepts for a song.
+
+    `lines` are the song's lyric lines. They are sent so the model can pick out
+    references that actually occur in the song rather than guessing from the
+    title; they are never echoed back, per the prompt.
+    """
     client = OpenAI()
     who = "{} - {}".format(artist, title) if artist else title
+    user_content = "Song: {}".format(who)
+    if lines:
+        user_content += "\n\nLyrics:\n{}".format("\n".join(lines))
     request = dict(
         model=model,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": FACTS_PROMPT},
-            {"role": "user", "content": "Song: {}".format(who)},
+            {"role": "user", "content": user_content},
         ],
     )
     try:
