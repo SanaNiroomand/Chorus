@@ -137,59 +137,53 @@ def clear_progress(chat, st):
         tg("deleteMessage", chat_id=chat, message_id=mid)
 
 
-# ---------- buttons ----------
+# ---------- menu ----------
+#
+# Everything is a reply keyboard: the grid that sits above the phone keyboard
+# and stays there. Tapping a button sends its label as an ordinary message,
+# which handle() intercepts. There are no inline buttons anywhere.
 
-def kb(*rows):
-    """Inline keyboard from rows of (label, callback_data) pairs."""
-    return {"inline_keyboard": [
-        [{"text": label, "callback_data": data} for label, data in row] for row in rows
-    ]}
-
-
-def send_kb(chat, text, keyboard):
-    """Send a short message carrying buttons (no splitting; these stay small)."""
-    return tg("sendMessage", chat_id=chat, text=text, parse_mode="HTML",
-              disable_web_page_preview=True, reply_markup=keyboard)
-
-
-# The persistent keyboard that sits above the phone keyboard. Unlike the inline
-# buttons above, this stays on screen the whole time; tapping one sends its
-# label as an ordinary message, which handle() intercepts.
 BTN_NEW = "🎵 New song"
+BTN_RETRY = "🔁 Try again"
 BTN_LEVEL = "🎚 Level"
 BTN_FACTS = "💡 About this song"
 BTN_HELP = "❓ How it works"
 
-MAIN_MENU = {
-    "keyboard": [
-        [{"text": BTN_NEW}],
-        [{"text": BTN_LEVEL}, {"text": BTN_FACTS}],
-        [{"text": BTN_HELP}],
-    ],
-    "resize_keyboard": True,
-    "is_persistent": True,
-}
+BTN_BEGINNER = "🌱 Beginner"
+BTN_INTERMEDIATE = "🎯 Intermediate"
+BTN_ADVANCED = "🔥 Advanced"
+BTN_BACK = "◀️ Back"
+
+LEVEL_LABEL = {"beginner": BTN_BEGINNER, "intermediate": BTN_INTERMEDIATE,
+               "advanced": BTN_ADVANCED}
+LEVEL_BY_BUTTON = {BTN_BEGINNER: "beginner", BTN_INTERMEDIATE: "intermediate",
+                   BTN_ADVANCED: "advanced"}
 
 
-def send_menu(chat, text):
-    """Send a message and (re)attach the persistent menu."""
+def _keyboard(rows):
+    return {"keyboard": [[{"text": t} for t in row] for row in rows],
+            "resize_keyboard": True, "is_persistent": True}
+
+
+MAIN_MENU = _keyboard([
+    [BTN_NEW, BTN_RETRY],
+    [BTN_LEVEL, BTN_FACTS],
+    [BTN_HELP],
+])
+
+# Shown only while choosing a level, then the main menu comes back.
+LEVEL_MENU = _keyboard([
+    [BTN_BEGINNER],
+    [BTN_INTERMEDIATE],
+    [BTN_ADVANCED],
+    [BTN_BACK],
+])
+
+
+def send_menu(chat, text, menu=None):
+    """Send a message and (re)attach a keyboard, the main menu by default."""
     return tg("sendMessage", chat_id=chat, text=text, parse_mode="HTML",
-              disable_web_page_preview=True, reply_markup=MAIN_MENU)
-
-
-MENU_KB = kb(
-    [("🎚 Level", "menu:level")],
-    [("❓ How it works", "menu:help")],
-)
-
-LEVEL_KB = kb(
-    [("🌱 Beginner", "level:beginner")],
-    [("🎯 Intermediate", "level:intermediate")],
-    [("🔥 Advanced", "level:advanced")],
-)
-
-LEVEL_LABEL = {"beginner": "🌱 Beginner", "intermediate": "🎯 Intermediate",
-               "advanced": "🔥 Advanced"}
+              disable_web_page_preview=True, reply_markup=menu or MAIN_MENU)
 
 
 def download(file_id, dest):
@@ -347,10 +341,8 @@ def grade_all(chat, st, text):
     # Keep the exercise around so "Try again" costs nothing; only "New song"
     # throws it away.
     st["phase"] = "done"
-    rows = [[("🔁 Try again", "act:retry")], [("🎵 New song", "act:new")]]
-    if st.get("matched"):          # facts need a song we can actually name
-        rows.insert(0, [("💡 About this song", "act:facts")])
-    send_kb(chat, "What next?", kb(*rows))
+    send_menu(chat, "Use the menu below: try this song again, hear about it, "
+                    "or send another.")
 
 
 # ---------- input handling ----------
@@ -441,54 +433,21 @@ def show_facts(chat, st):
         "\n\n".join(parts)))
 
 
-def on_callback(cq):
-    """Handle a button tap."""
-    chat = cq["message"]["chat"]["id"]
-    st = STATE.setdefault(chat, {"level": "intermediate", "phase": None})
-    data = cq.get("data", "")
-    tg("answerCallbackQuery", callback_query_id=cq["id"])   # stop the spinner
+def set_level(chat, st, level):
+    st["level"] = level
+    extra = "  You'll get a word bank to choose from." if level == "beginner" else ""
+    send_menu(chat, "Level set to <b>{}</b>.{}".format(LEVEL_LABEL[level], extra))
 
-    if data.startswith("level:"):
-        lvl = data.split(":", 1)[1]
-        if lvl in ("beginner", "intermediate", "advanced"):
-            st["level"] = lvl
-            extra = ("  You'll get a word bank to choose from."
-                     if lvl == "beginner" else "")
-            send(chat, "Level set to <b>{}</b>.{}".format(LEVEL_LABEL[lvl], extra))
-        return
 
-    if data == "menu:level":
-        send_kb(chat, "Pick your level:", LEVEL_KB)
-        return
-
-    if data == "menu:help":
-        send(chat, WELCOME)
-        return
-
-    if data == "act:retry":
-        if st.get("sheet") and st.get("blanks"):
-            st["phase"] = "await"
-            present_worksheet(chat, st)
-        else:
-            send_kb(chat, "That exercise is gone. Send a music file to start a new one.",
-                    MENU_KB)
-        return
-
-    if data == "act:new":
-        reset(st)
-        send(chat, "🎵 Send me a music file and I'll build the next one.")
-        return
-
-    if data == "act:facts":
-        show_facts(chat, st)
-        return
+def retry(chat, st):
+    if st.get("sheet") and st.get("blanks"):
+        st["phase"] = "await"
+        present_worksheet(chat, st)
+    else:
+        send_menu(chat, "There's no exercise to retry. Send a music file to start one.")
 
 
 def handle(upd):
-    cq = upd.get("callback_query")
-    if cq:
-        on_callback(cq)
-        return
 
     msg = upd.get("message") or upd.get("edited_message")
     if not msg:
@@ -507,14 +466,13 @@ def handle(upd):
                             LEVEL_LABEL.get(st.get("level"), "")))
         return
     if low.startswith("/level"):
-        # The typed form still works; the buttons are just easier.
+        # The typed form still works; the menu is just easier.
         parts = text.split(maxsplit=1)
         arg = parts[1].strip().lower() if len(parts) > 1 else ""
         if arg in ("beginner", "intermediate", "advanced"):
-            st["level"] = arg
-            send(chat, "Level set to <b>{}</b>.".format(LEVEL_LABEL[arg]))
+            set_level(chat, st, arg)
         else:
-            send_kb(chat, "Pick your level:", LEVEL_KB)
+            send_menu(chat, "Pick your level:", LEVEL_MENU)
         return
     if low.startswith("/stop") or low.startswith("/new"):
         reset(st)
@@ -524,12 +482,21 @@ def handle(upd):
     # Menu taps arrive as ordinary text, so they must be caught before the
     # answer grading below - otherwise tapping one mid-exercise would be
     # marked as a wrong answer.
+    if text in LEVEL_BY_BUTTON:
+        set_level(chat, st, LEVEL_BY_BUTTON[text])
+        return
+    if text == BTN_BACK:
+        send_menu(chat, "Back to the menu.")
+        return
     if text == BTN_NEW:
         reset(st)
         send_menu(chat, "🎵 Send me a music file and I'll build the next one.")
         return
+    if text == BTN_RETRY:
+        retry(chat, st)
+        return
     if text == BTN_LEVEL:
-        send_kb(chat, "Pick your level:", LEVEL_KB)
+        send_menu(chat, "Pick your level:", LEVEL_MENU)
         return
     if text == BTN_FACTS:
         if st.get("matched"):
