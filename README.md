@@ -7,7 +7,19 @@ learning — idioms, phrasal verbs, slang, grammar patterns — and sends the ly
 back as a fill-in-the-blank worksheet. Listen, reply with your answers, and it
 marks them and explains each one.
 
-Works in any language: it detects what the song is in and teaches accordingly.
+## Any language
+
+Not just English. Send a song in Spanish, French, German, Portuguese, Italian,
+Persian — whatever you like — and it works out which language it is on its own.
+There is no setting to change.
+
+What it picks adapts to the language it finds. A Spanish song gets Spanish
+grammar patterns and fixed expressions; an English one gets phrasal verbs and
+English idioms. The explanations come back in English, so you can study a
+language you barely know yet and still follow why each word matters.
+
+Languages written without spaces between words (Chinese, Japanese, Thai) are
+rougher, since the blanks and the answer checking both work word by word.
 
 ## Using it
 
