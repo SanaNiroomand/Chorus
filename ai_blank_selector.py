@@ -106,6 +106,48 @@ def select_blanks(lines, level="intermediate", model=MODEL):
     return resp.choices[0].message.content
 
 
+FACTS_PROMPT = """\
+You are a music writer giving a language learner brief, interesting context
+about a song they have just practised.
+
+Give 3 or 4 short facts. Good material: what the song is really about, the
+story behind how it came to be written, its cultural impact or chart history,
+notable recording details, or what the title means idiomatically.
+
+Rules:
+- Do NOT quote or reproduce song lyrics. Describe and explain in your own words.
+- Be accurate. If you are not confident you know this specific song, set
+  "known" to false and return no facts rather than inventing any.
+- One or two sentences per fact, plain language, in English.
+- Skip anything a listener could work out just from the title.
+
+Return ONLY a JSON object:
+{"known": true, "facts": ["...", "...", "..."]}
+"""
+
+
+def song_facts(artist, title, model=MODEL):
+    """Return the raw JSON string of background facts about a song."""
+    client = OpenAI()
+    who = "{} - {}".format(artist, title) if artist else title
+    request = dict(
+        model=model,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": FACTS_PROMPT},
+            {"role": "user", "content": "Song: {}".format(who)},
+        ],
+    )
+    try:
+        resp = client.chat.completions.create(temperature=0.4, **request)
+    except BadRequestError as e:
+        if "temperature" in str(e).lower():
+            resp = client.chat.completions.create(**request)
+        else:
+            raise
+    return resp.choices[0].message.content
+
+
 def main():
     parser = argparse.ArgumentParser(description="Choose pedagogical blanks from lyric lines.")
     parser.add_argument("level", nargs="?", default="intermediate", choices=LEVELS)

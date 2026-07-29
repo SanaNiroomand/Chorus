@@ -13,6 +13,7 @@ Run:  python bot.py      (needs TELEGRAM_TOKEN in .env)
 """
 
 import html
+import json
 import os
 import random
 import re
@@ -25,6 +26,7 @@ import httpx
 from dotenv import load_dotenv
 
 from exercise import choose_blanks, fetch_lyric_lines, ExerciseError, MAX_LINES
+from ai_blank_selector import song_facts
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -211,6 +213,7 @@ def reset(st):
     st.pop("blanks", None)
     st.pop("matched", None)
     st.pop("sheet", None)
+    st.pop("facts", None)
     st.pop("progress_msgs", None)   # ids from a previous song are stale now
     st["phase"] = None
 
@@ -315,10 +318,10 @@ def grade_all(chat, st, text):
     # Keep the exercise around so "Try again" costs nothing; only "New song"
     # throws it away.
     st["phase"] = "done"
-    send_kb(chat, "What next?", kb(
-        [("🔁 Try again", "act:retry")],
-        [("🎵 New song", "act:new")],
-    ))
+    rows = [[("🔁 Try again", "act:retry")], [("🎵 New song", "act:new")]]
+    if st.get("matched"):          # facts need a song we can actually name
+        rows.insert(0, [("💡 About this song", "act:facts")])
+    send_kb(chat, "What next?", kb(*rows))
 
 
 # ---------- input handling ----------
@@ -373,6 +376,32 @@ def from_text_collect(chat, st, text):
                    "or paste the lyrics).")
 
 
+def show_facts(chat, st):
+    """Background on the song. Cached, so re-tapping costs nothing."""
+    matched = st.get("matched")
+    if not matched:
+        send(chat, "I don't know which release this was, so I can't look it up.")
+        return
+
+    if not st.get("facts"):
+        send_progress(chat, st, "💡 Looking up the story behind this one…")
+        try:
+            data = json.loads(song_facts(matched.get("artist"), matched.get("title")))
+        except Exception:
+            clear_progress(chat, st)
+            send(chat, "😕 Couldn't fetch anything about this song right now.")
+            return
+        clear_progress(chat, st)
+        if not data.get("known") or not data.get("facts"):
+            send(chat, "🤷 I don't know enough about this song to say anything reliable.")
+            return
+        st["facts"] = data["facts"]
+
+    body = "\n\n".join("• {}".format(esc(f)) for f in st["facts"])
+    send(chat, "💡 <b>About {} — {}</b>\n\n{}".format(
+        esc(clean_artist(matched.get("artist"))), esc(matched.get("title")), body))
+
+
 def on_callback(cq):
     """Handle a button tap."""
     chat = cq["message"]["chat"]["id"]
@@ -409,6 +438,10 @@ def on_callback(cq):
     if data == "act:new":
         reset(st)
         send(chat, "🎵 Send me a music file and I'll build the next one.")
+        return
+
+    if data == "act:facts":
+        show_facts(chat, st)
         return
 
 
