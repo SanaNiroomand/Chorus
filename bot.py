@@ -114,6 +114,26 @@ def send(chat, text):
     return last
 
 
+def send_progress(chat, st, text):
+    """Send a 'working on it' message, remembered so it can be tidied away later.
+
+    These are only useful while the user waits; once the worksheet arrives they
+    are clutter, so clear_progress() deletes them.
+    """
+    resp = send(chat, text)
+    try:
+        st.setdefault("progress_msgs", []).append(resp["result"]["message_id"])
+    except (KeyError, TypeError):
+        pass          # could not read the id; nothing to clean up later
+    return resp
+
+
+def clear_progress(chat, st):
+    """Delete the progress messages sent for the current song."""
+    for mid in st.pop("progress_msgs", []):
+        tg("deleteMessage", chat_id=chat, message_id=mid)
+
+
 def download(file_id, dest):
     j = tg("getFile", file_id=file_id)
     if not j.get("ok"):
@@ -159,6 +179,7 @@ def audio_of(msg):
 def reset(st):
     st.pop("blanks", None)
     st.pop("matched", None)
+    st.pop("progress_msgs", None)   # ids from a previous song are stale now
     st["phase"] = None
 
 
@@ -168,9 +189,16 @@ def build_worksheet(chat, st, line_texts, matched):
     line_texts = line_texts[:MAX_LINES]
     # The lyric lookup above takes ~1s; this AI call is the real wait (~15s),
     # so say so rather than leaving the user staring at "finding the lyrics".
-    send(chat, "🧠 Got the lyrics. Now picking the words worth learning — "
-               "this is the slow part, about 15 seconds…")
-    chosen = choose_blanks(line_texts, st.get("level", "intermediate"))
+    send_progress(chat, st, "🧠 Got the lyrics. Now picking the words worth learning — "
+                            "this is the slow part, about 15 seconds…")
+    try:
+        chosen = choose_blanks(line_texts, st.get("level", "intermediate"))
+    except ExerciseError as e:
+        # Without this the progress message would sit there forever with no
+        # explanation of why nothing arrived.
+        clear_progress(chat, st)
+        send(chat, "😕 {} Try another song.".format(esc(str(e))))
+        return
 
     blanks, out_lines, n = [], [], 0
     for i, text in enumerate(line_texts):
@@ -185,6 +213,8 @@ def build_worksheet(chat, st, line_texts, matched):
             out_lines.append(esc(text))
 
     st["blanks"], st["matched"], st["phase"] = blanks, matched, "await"
+
+    clear_progress(chat, st)   # the waiting is over; tidy the chatter away
 
     head = ""
     if matched:
@@ -236,7 +266,7 @@ def from_audio(chat, st, fid, size):
         send(chat, "That file is over 20 MB — Telegram won't let bots download files that big. "
                    "Try a shorter or lower-bitrate one.")
         return
-    send(chat, "🎵 Got it — finding the lyrics…")
+    send_progress(chat, st, "🎵 Got it — finding the lyrics…")
     tmp = os.path.join(tempfile.gettempdir(), "chorus_{}".format(chat))
     title = artist = None
     if download(fid, tmp):
@@ -246,12 +276,14 @@ def from_audio(chat, st, fid, size):
         except OSError:
             pass
     if not title:
+        clear_progress(chat, st)
         send(chat, "I couldn't read the song from the file. Reply <b>Artist - Title</b> and "
                    "I'll fetch the lyrics, or paste the lyrics.")
         return
     try:
         lines, matched = fetch_lyric_lines(artist, title)
     except ExerciseError:
+        clear_progress(chat, st)
         who = "{} — {}".format(artist, title) if artist else title
         send(chat, "Found the song (<b>{}</b>) but not its lyrics. Reply <b>Artist - Title</b> "
                    "of the exact release, or paste the lyrics.".format(esc(who)))
@@ -263,10 +295,12 @@ def from_text_collect(chat, st, text):
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if len(lines) == 1 and " - " in lines[0]:
         artist, title = [p.strip() for p in lines[0].split(" - ", 1)]
-        send(chat, "🔎 Fetching lyrics for <b>{} — {}</b>…".format(esc(artist), esc(title)))
+        send_progress(chat, st, "🔎 Fetching lyrics for <b>{} — {}</b>…".format(
+            esc(artist), esc(title)))
         try:
             lyr, matched = fetch_lyric_lines(artist, title)
         except ExerciseError as e:
+            clear_progress(chat, st)
             send(chat, "😕 {} You can also paste the lyrics directly.".format(esc(str(e))))
             return
         build_worksheet(chat, st, lyr, matched)
