@@ -152,6 +152,31 @@ def send_kb(chat, text, keyboard):
               disable_web_page_preview=True, reply_markup=keyboard)
 
 
+# The persistent keyboard that sits above the phone keyboard. Unlike the inline
+# buttons above, this stays on screen the whole time; tapping one sends its
+# label as an ordinary message, which handle() intercepts.
+BTN_NEW = "🎵 New song"
+BTN_LEVEL = "🎚 Level"
+BTN_FACTS = "💡 About this song"
+BTN_HELP = "❓ How it works"
+
+MAIN_MENU = {
+    "keyboard": [
+        [{"text": BTN_NEW}],
+        [{"text": BTN_LEVEL}, {"text": BTN_FACTS}],
+        [{"text": BTN_HELP}],
+    ],
+    "resize_keyboard": True,
+    "is_persistent": True,
+}
+
+
+def send_menu(chat, text):
+    """Send a message and (re)attach the persistent menu."""
+    return tg("sendMessage", chat_id=chat, text=text, parse_mode="HTML",
+              disable_web_page_preview=True, reply_markup=MAIN_MENU)
+
+
 MENU_KB = kb(
     [("🎚 Level", "menu:level")],
     [("❓ How it works", "menu:help")],
@@ -474,11 +499,12 @@ def handle(upd):
     low = text.lower()
 
     if low.startswith("/start") or low.startswith("/help"):
-        send_kb(chat, "🎵 <b>Chorus</b> — learn languages from your own songs.\n\n"
-                      "<b>Send me a music file</b> and I'll find the lyrics, blank out the "
-                      "words worth learning, and send it back as a worksheet.\n\n"
-                      "Current level: <b>{}</b>".format(LEVEL_LABEL.get(st.get("level"), "")),
-                MENU_KB)
+        send_menu(chat, "🎵 <b>Chorus</b> — learn languages from your own songs.\n\n"
+                        "<b>Send me a music file</b> and I'll find the lyrics, blank out the "
+                        "words worth learning, and send it back as a worksheet.\n\n"
+                        "Current level: <b>{}</b>\n\n"
+                        "Use the buttons below any time.".format(
+                            LEVEL_LABEL.get(st.get("level"), "")))
         return
     if low.startswith("/level"):
         # The typed form still works; the buttons are just easier.
@@ -492,7 +518,27 @@ def handle(upd):
         return
     if low.startswith("/stop") or low.startswith("/new"):
         reset(st)
-        send(chat, "Cleared. Send a <b>music file</b> to start.")
+        send_menu(chat, "Cleared. Send a <b>music file</b> to start.")
+        return
+
+    # Menu taps arrive as ordinary text, so they must be caught before the
+    # answer grading below - otherwise tapping one mid-exercise would be
+    # marked as a wrong answer.
+    if text == BTN_NEW:
+        reset(st)
+        send_menu(chat, "🎵 Send me a music file and I'll build the next one.")
+        return
+    if text == BTN_LEVEL:
+        send_kb(chat, "Pick your level:", LEVEL_KB)
+        return
+    if text == BTN_FACTS:
+        if st.get("matched"):
+            show_facts(chat, st)
+        else:
+            send_menu(chat, "Finish a song first and I'll tell you about it.")
+        return
+    if text == BTN_HELP:
+        send_menu(chat, WELCOME)
         return
 
     # a music file always starts a fresh exercise
