@@ -251,7 +251,8 @@ def build_worksheet(chat, st, line_texts, matched):
 
     clear_progress(chat, st)   # the waiting is over; tidy the chatter away
     if warning:
-        send(chat, "⚠️ {}".format(esc(warning)))
+        # Logged, not sent: the learner just gets their exercise.
+        print("fallback blanks used:", warning, flush=True)
     present_worksheet(chat, st)
 
 
