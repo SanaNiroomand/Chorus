@@ -14,6 +14,7 @@ Run:  python bot.py      (needs TELEGRAM_TOKEN in .env)
 
 import html
 import os
+import random
 import re
 import sys
 import tempfile
@@ -134,6 +135,36 @@ def clear_progress(chat, st):
         tg("deleteMessage", chat_id=chat, message_id=mid)
 
 
+# ---------- buttons ----------
+
+def kb(*rows):
+    """Inline keyboard from rows of (label, callback_data) pairs."""
+    return {"inline_keyboard": [
+        [{"text": label, "callback_data": data} for label, data in row] for row in rows
+    ]}
+
+
+def send_kb(chat, text, keyboard):
+    """Send a short message carrying buttons (no splitting; these stay small)."""
+    return tg("sendMessage", chat_id=chat, text=text, parse_mode="HTML",
+              disable_web_page_preview=True, reply_markup=keyboard)
+
+
+MENU_KB = kb(
+    [("🎚 Level", "menu:level")],
+    [("❓ How it works", "menu:help")],
+)
+
+LEVEL_KB = kb(
+    [("🌱 Beginner", "level:beginner")],
+    [("🎯 Intermediate", "level:intermediate")],
+    [("🔥 Advanced", "level:advanced")],
+)
+
+LEVEL_LABEL = {"beginner": "🌱 Beginner", "intermediate": "🎯 Intermediate",
+               "advanced": "🔥 Advanced"}
+
+
 def download(file_id, dest):
     j = tg("getFile", file_id=file_id)
     if not j.get("ok"):
@@ -179,6 +210,7 @@ def audio_of(msg):
 def reset(st):
     st.pop("blanks", None)
     st.pop("matched", None)
+    st.pop("sheet", None)
     st.pop("progress_msgs", None)   # ids from a previous song are stale now
     st["phase"] = None
 
@@ -213,15 +245,38 @@ def build_worksheet(chat, st, line_texts, matched):
             out_lines.append(esc(text))
 
     st["blanks"], st["matched"], st["phase"] = blanks, matched, "await"
+    # Kept so "Try again" can re-present the same exercise without paying for
+    # another AI call.
+    st["sheet"] = "\n".join(out_lines)
 
     clear_progress(chat, st)   # the waiting is over; tidy the chatter away
+    present_worksheet(chat, st)
 
+
+def word_bank(blanks):
+    """Shuffled answers, shown to beginners so they choose rather than produce.
+
+    Recognition is easier than recall, which is the point at beginner level;
+    higher levels get no bank so the recall stays genuine.
+    """
+    words = [b["answer"] for b in blanks]
+    random.shuffle(words)
+    return " · ".join("<code>{}</code>".format(esc(w)) for w in words)
+
+
+def present_worksheet(chat, st):
+    """Send the exercise: header, the gapped lyric, and a bank for beginners."""
+    blanks, matched = st["blanks"], st.get("matched")
     head = ""
     if matched:
-        head = "🎧 <b>{} — {}</b>\n".format(esc(clean_artist(matched["artist"])), esc(matched["title"]))
+        head = "🎧 <b>{} — {}</b>\n".format(
+            esc(clean_artist(matched["artist"])), esc(matched["title"]))
     send(chat, head + "Fill the <b>{} gap(s)</b>. Listen to your song, then reply with the "
                       "missing words — one per line (or like <code>1. word</code>).".format(len(blanks)))
-    send(chat, "\n".join(out_lines))
+    send(chat, st["sheet"])
+    if st.get("level") == "beginner":
+        send(chat, "🌱 <b>Word bank</b> (shuffled — the words you need are all here):\n{}".format(
+            word_bank(blanks)))
 
 
 def parse_answers(text):
@@ -254,9 +309,16 @@ def grade_all(chat, st, text):
     pct = round(correct / total * 100) if total else 0
     tag = ("Perfect ear! 🎯" if pct == 100 else "Sharp listening!" if pct >= 70
            else "Nice start —" if pct >= 40 else "Keep at it —")
-    send(chat, "🏁 <b>{} / {}</b> ({}%)  {}\n\n{}\n\nSend another song to go again.".format(
+    send(chat, "🏁 <b>{} / {}</b> ({}%)  {}\n\n{}".format(
         correct, total, pct, tag, "\n".join(rows)))
-    reset(st)
+
+    # Keep the exercise around so "Try again" costs nothing; only "New song"
+    # throws it away.
+    st["phase"] = "done"
+    send_kb(chat, "What next?", kb(
+        [("🔁 Try again", "act:retry")],
+        [("🎵 New song", "act:new")],
+    ))
 
 
 # ---------- input handling ----------
@@ -311,7 +373,51 @@ def from_text_collect(chat, st, text):
                    "or paste the lyrics).")
 
 
+def on_callback(cq):
+    """Handle a button tap."""
+    chat = cq["message"]["chat"]["id"]
+    st = STATE.setdefault(chat, {"level": "intermediate", "phase": None})
+    data = cq.get("data", "")
+    tg("answerCallbackQuery", callback_query_id=cq["id"])   # stop the spinner
+
+    if data.startswith("level:"):
+        lvl = data.split(":", 1)[1]
+        if lvl in ("beginner", "intermediate", "advanced"):
+            st["level"] = lvl
+            extra = ("  You'll get a word bank to choose from."
+                     if lvl == "beginner" else "")
+            send(chat, "Level set to <b>{}</b>.{}".format(LEVEL_LABEL[lvl], extra))
+        return
+
+    if data == "menu:level":
+        send_kb(chat, "Pick your level:", LEVEL_KB)
+        return
+
+    if data == "menu:help":
+        send(chat, WELCOME)
+        return
+
+    if data == "act:retry":
+        if st.get("sheet") and st.get("blanks"):
+            st["phase"] = "await"
+            present_worksheet(chat, st)
+        else:
+            send_kb(chat, "That exercise is gone. Send a music file to start a new one.",
+                    MENU_KB)
+        return
+
+    if data == "act:new":
+        reset(st)
+        send(chat, "🎵 Send me a music file and I'll build the next one.")
+        return
+
+
 def handle(upd):
+    cq = upd.get("callback_query")
+    if cq:
+        on_callback(cq)
+        return
+
     msg = upd.get("message") or upd.get("edited_message")
     if not msg:
         return
@@ -321,16 +427,21 @@ def handle(upd):
     low = text.lower()
 
     if low.startswith("/start") or low.startswith("/help"):
-        send(chat, WELCOME)
+        send_kb(chat, "🎵 <b>Chorus</b> — learn languages from your own songs.\n\n"
+                      "<b>Send me a music file</b> and I'll find the lyrics, blank out the "
+                      "words worth learning, and send it back as a worksheet.\n\n"
+                      "Current level: <b>{}</b>".format(LEVEL_LABEL.get(st.get("level"), "")),
+                MENU_KB)
         return
     if low.startswith("/level"):
+        # The typed form still works; the buttons are just easier.
         parts = text.split(maxsplit=1)
         arg = parts[1].strip().lower() if len(parts) > 1 else ""
         if arg in ("beginner", "intermediate", "advanced"):
             st["level"] = arg
-            send(chat, "Level set to <b>{}</b>.".format(arg))
+            send(chat, "Level set to <b>{}</b>.".format(LEVEL_LABEL[arg]))
         else:
-            send(chat, "Usage: /level beginner | intermediate | advanced")
+            send_kb(chat, "Pick your level:", LEVEL_KB)
         return
     if low.startswith("/stop") or low.startswith("/new"):
         reset(st)
