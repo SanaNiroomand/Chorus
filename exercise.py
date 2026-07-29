@@ -22,7 +22,8 @@ from ai_blank_selector import select_blanks
 
 LRCLIB_SEARCH = "https://lrclib.net/api/search"
 USER_AGENT = "Chorus/0.1 (English-learning prototype)"
-MAX_LINES = 40      # lyric lines sent to the model
+MAX_LINES = 200     # sanity cap only; real songs are well under this, so the
+                    # learner always gets the whole lyric, never a truncation
 MAX_BLANKS = 8      # blanks kept for the exercise (kept sparse on purpose)
 
 

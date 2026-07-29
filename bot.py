@@ -76,9 +76,42 @@ def tg(method, **params):
     return {"ok": False}
 
 
+TG_LIMIT = 4096   # Telegram rejects longer messages outright
+
+
+def _chunks(text, limit=TG_LIMIT):
+    """Split at line boundaries so HTML tags are never cut in half."""
+    if len(text) <= limit:
+        yield text
+        return
+    buf = ""
+    for line in text.split("\n"):
+        while len(line) > limit:          # a single monstrous line still has to give
+            if buf:
+                yield buf
+                buf = ""
+            yield line[:limit]
+            line = line[limit:]
+        if buf and len(buf) + len(line) + 1 > limit:
+            yield buf
+            buf = line
+        else:
+            buf = "{}\n{}".format(buf, line) if buf else line
+    if buf:
+        yield buf
+
+
 def send(chat, text):
-    return tg("sendMessage", chat_id=chat, text=text, parse_mode="HTML",
-              disable_web_page_preview=True)
+    """Send text, splitting it if it exceeds Telegram's per-message limit.
+
+    A full lyric sheet routinely runs past 4096 characters, and Telegram
+    rejects the whole message rather than truncating it.
+    """
+    last = None
+    for chunk in _chunks(text):
+        last = tg("sendMessage", chat_id=chat, text=chunk, parse_mode="HTML",
+                  disable_web_page_preview=True)
+    return last
 
 
 def download(file_id, dest):
