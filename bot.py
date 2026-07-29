@@ -525,6 +525,16 @@ def main():
         sys.exit("Telegram rejected the token: {}".format(me))
     print("Chorus worksheet bot online as @{}".format(me["result"]["username"]), flush=True)
 
+    # Populates the ☰ menu next to the text box, so the commands are
+    # discoverable instead of having to be known in advance.
+    tg("setMyCommands", commands=[
+        {"command": "start", "description": "How it works"},
+        {"command": "level", "description": "Change level (beginner / intermediate / advanced)"},
+        {"command": "new", "description": "Start a new song"},
+    ])
+    # The ☰ button itself, rather than the default one.
+    tg("setChatMenuButton", menu_button={"type": "commands"})
+
     offset = None
     while True:
         params = {"timeout": 25}
