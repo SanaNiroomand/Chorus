@@ -161,8 +161,10 @@ LEVEL_BY_BUTTON = {BTN_BEGINNER: "beginner", BTN_INTERMEDIATE: "intermediate",
 
 
 def _keyboard(rows):
+    # one_time_keyboard collapses it after a tap instead of sitting on screen
+    # permanently; the user reopens it from the keyboard icon when wanted.
     return {"keyboard": [[{"text": t} for t in row] for row in rows],
-            "resize_keyboard": True, "is_persistent": True}
+            "resize_keyboard": True, "one_time_keyboard": True}
 
 
 MAIN_MENU = _keyboard([
@@ -444,7 +446,7 @@ def retry(chat, st):
         st["phase"] = "await"
         present_worksheet(chat, st)
     else:
-        send_menu(chat, "There's no exercise to retry. Send a music file to start one.")
+        send(chat, "There's no exercise to retry. Send a music file to start one.")
 
 
 def handle(upd):
@@ -476,7 +478,7 @@ def handle(upd):
         return
     if low.startswith("/stop") or low.startswith("/new"):
         reset(st)
-        send_menu(chat, "Cleared. Send a <b>music file</b> to start.")
+        send(chat, "Cleared. Send a <b>music file</b> to start.")
         return
 
     # Menu taps arrive as ordinary text, so they must be caught before the
@@ -490,7 +492,7 @@ def handle(upd):
         return
     if text == BTN_NEW:
         reset(st)
-        send_menu(chat, "🎵 Send me a music file and I'll build the next one.")
+        send(chat, "🎵 Send me a music file and I'll build the next one.")
         return
     if text == BTN_RETRY:
         retry(chat, st)
@@ -502,10 +504,10 @@ def handle(upd):
         if st.get("matched"):
             show_facts(chat, st)
         else:
-            send_menu(chat, "Finish a song first and I'll tell you about it.")
+            send(chat, "Finish a song first and I'll tell you about it.")
         return
     if text == BTN_HELP:
-        send_menu(chat, WELCOME)
+        send(chat, WELCOME)
         return
 
     # a music file always starts a fresh exercise
