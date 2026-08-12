@@ -299,12 +299,26 @@ def present_worksheet(chat, st):
     if matched:
         head = "🎧 <b>{} — {}</b>\n".format(
             esc(clean_artist(matched["artist"])), esc(matched["title"]))
-    send(chat, head + "Fill the <b>{} gap(s)</b>. Listen to your song, then reply with the "
-                      "missing words — one per line (or like <code>1. word</code>).".format(len(blanks)))
+    n = len(blanks)
+    shown = min(n, 3)                       # keep the example the size of the task
+    numbers = " ".join(keycap(i) for i in range(1, shown + 1))
+    examples = ["first missing word", "second missing word", "third missing word"][:shown]
+    example_block = "\n".join("{}. {}".format(i + 1, w) for i, w in enumerate(examples))
+    send(chat, head + (
+        "There {} <b>{} gap{}</b> in the lyrics below, marked {}{}\n\n"
+        "▶️ Play your song and listen for the missing words.\n"
+        "✍️ Then send {} back in <b>one message</b>, numbered:\n\n"
+        "<code>{}</code>\n\n"
+        "Numbering keeps everything lined up. You can also just write one word "
+        "per line in order, without numbers.\n"
+        "Don't know one? Write <code>-</code> and I'll show you the answer."
+    ).format("is" if n == 1 else "are", n, "" if n == 1 else "s",
+             numbers, "" if n <= 3 else " and so on",
+             "it" if n == 1 else "them all", example_block))
     send(chat, st["sheet"])
     if st.get("level") == "beginner":
-        send(chat, "🌱 <b>Word bank</b> (shuffled — the words you need are all here):\n{}".format(
-            word_bank(blanks)))
+        send(chat, "🌱 <b>Word bank</b> — every word you need is here, just shuffled. "
+                   "Work out which one fits which gap:\n\n{}".format(word_bank(blanks)))
 
 
 def parse_answers(text):
@@ -522,7 +536,8 @@ def handle(upd):
         if text:
             grade_all(chat, st, text)
         else:
-            send(chat, "Reply with your answers — one per line, or like <code>1. word</code>.")
+            send(chat, "Send me the missing words in one message, numbered:\n\n"
+                       "<code>1. first missing word\n2. second missing word</code>")
         return
 
     if text:
