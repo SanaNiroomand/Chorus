@@ -7,6 +7,35 @@ learning — idioms, phrasal verbs, slang, grammar patterns — and sends the ly
 back as a fill-in-the-blank worksheet. Listen, reply with your answers, and it
 marks them and explains each one.
 
+## What an exercise looks like
+
+Send a music file. The bot reads its tags, finds the lyrics, and sends the whole
+song back with a handful of words replaced by numbered gaps:
+
+```
+🎧 Artist — Title
+
+There are 5 gaps in the lyrics below, marked 1️⃣ 2️⃣ 3️⃣ and so on
+
+▶️ Play your song and listen for the missing words.
+✍️ Then send them all back in one message, numbered:
+
+1. first missing word
+2. second missing word
+```
+
+You get the complete lyric, not an extract, so you can follow along while the
+song plays. Reply with your answers and it marks each one, gives the correct
+answer where you missed, and says why that word was worth knowing:
+
+```
+🏁 4 / 5 (80%)  Sharp listening!
+
+✅ 1️⃣ run around — can suggest being unfaithful, not literally running
+❌ 2️⃣ let down — means to disappoint someone
+     you wrote: let go
+```
+
 ## Any language
 
 Not just English. Send a song in Spanish, French, German, Portuguese, Italian,
