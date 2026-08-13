@@ -25,11 +25,13 @@ import av
 import httpx
 from dotenv import load_dotenv
 
+import stats
 from exercise import choose_blanks, fetch_lyric_lines, ExerciseError, MAX_LINES
 from ai_blank_selector import song_facts
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+ADMIN_CHAT_ID = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 API = "https://api.telegram.org/bot{}".format(TOKEN)
 FILE_API = "https://api.telegram.org/file/bot{}".format(TOKEN)
 
@@ -278,6 +280,11 @@ def build_worksheet(chat, st, line_texts, matched):
     st["lines"] = line_texts
 
     clear_progress(chat, st)   # the waiting is over; tidy the chatter away
+    stats.record("built", chat,
+                 level=st.get("level"),
+                 blanks=len(blanks),
+                 song=("{} — {}".format(clean_artist(matched.get("artist")),
+                                        matched.get("title")) if matched else None))
     present_worksheet(chat, st)
 
 
@@ -353,6 +360,12 @@ def grade_all(chat, st, text):
            else "Nice start —" if pct >= 40 else "Keep at it —")
     send(chat, "🏁 <b>{} / {}</b> ({}%)  {}\n\n{}".format(
         correct, total, pct, tag, "\n".join(rows)))
+
+    matched = st.get("matched")
+    stats.record("graded", chat,
+                 level=st.get("level"), correct=correct, total=total,
+                 song=("{} — {}".format(clean_artist(matched.get("artist")),
+                                        matched.get("title")) if matched else None))
 
     # Keep the exercise around so "Try again" costs nothing; only "New song"
     # throws it away.
@@ -489,6 +502,11 @@ def handle(upd):
             set_level(chat, st, arg)
         else:
             send_menu(chat, "Pick your level:", LEVEL_MENU)
+        return
+    if low.startswith("/stats"):
+        # Silently ignored for everyone else, so users never learn it exists.
+        if ADMIN_CHAT_ID and str(chat) == ADMIN_CHAT_ID:
+            send(chat, stats.summary())
         return
     if low.startswith("/stop") or low.startswith("/new"):
         reset(st)

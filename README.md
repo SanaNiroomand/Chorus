@@ -91,6 +91,17 @@ platforms that look for one.
 
 Only run one copy at a time — Telegram allows a single poller per token.
 
+Two optional variables:
+
+- `ADMIN_CHAT_ID` — your own Telegram chat id (from
+  [@userinfobot](https://t.me/userinfobot)). With it set, `/stats` shows you
+  usage: people, exercises built and finished, average score, level split and
+  most-practised songs. For anyone else the command does nothing at all.
+- `CHORUS_DATA_DIR` — where the usage log is written. Point it at a path that
+  survives redeploys, otherwise the numbers reset on every deploy. Chat ids are
+  stored only as a short hash, so the log counts people without identifying
+  them.
+
 ## How it fits together
 
 | File | Job |
@@ -98,6 +109,7 @@ Only run one copy at a time — Telegram allows a single poller per token.
 | `bot.py` | The Telegram bot: menu, worksheets, grading |
 | `exercise.py` | Fetches lyrics from LRCLIB, picks a sparse set of blanks |
 | `ai_blank_selector.py` | The OpenAI calls — choosing blanks, and song background |
+| `stats.py` | Usage log and the `/stats` summary |
 
 Blanks are chosen for teaching value rather than rarity or position: at most one
 per line, never the same word twice, and only a handful per song. When the model

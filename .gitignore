@@ -1,6 +1,9 @@
 # Secrets / local config
 .env
 
+# Usage log written by stats.py — real user activity, never commit it
+usage.jsonl
+
 # Private lyric text (treated as internal — see project constraints)
 lines.txt
 
