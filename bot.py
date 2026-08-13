@@ -327,9 +327,14 @@ def present_worksheet(chat, st):
              numbers, "" if n <= 3 else " and so on",
              "it" if n == 1 else "them all", example_block))
     send(chat, st["sheet"])
+    # The menu rides along with the last message of the worksheet, so the
+    # buttons stay reachable while the exercise is being answered rather than
+    # only turning up once it is over.
     if st.get("level") == "beginner":
-        send(chat, "🌱 <b>Word bank</b> — every word you need is here, just shuffled. "
-                   "Work out which one fits which gap:\n\n{}".format(word_bank(blanks)))
+        send_menu(chat, "🌱 <b>Word bank</b> — every word you need is here, just shuffled. "
+                        "Work out which one fits which gap:\n\n{}".format(word_bank(blanks)))
+    else:
+        send_menu(chat, "The menu is below whenever you need it.")
 
 
 def parse_answers(text):
@@ -504,31 +509,20 @@ def handle(upd):
     text = (msg.get("text") or "").strip()
     low = text.lower()
 
-    if low.startswith("/start") or low.startswith("/help"):
+    # /start is the one command kept: Telegram sends it automatically the first
+    # time someone opens the bot, so it cannot be replaced by a button.
+    if low.startswith("/start"):
         send_menu(chat, "🎵 <b>Chorus</b> — learn languages from your own songs.\n\n"
                         "<b>Send me a music file</b> and I'll find the lyrics, blank out the "
                         "words worth learning, and send it back as a worksheet.\n\n"
                         "Current level: <b>{}</b>\n\n"
-                        "Use the buttons below any time.".format(
+                        "Everything else is on the buttons below.".format(
                             LEVEL_LABEL.get(st.get("level"), "")))
         return
-    if low.startswith("/level"):
-        # The typed form still works; the menu is just easier.
-        parts = text.split(maxsplit=1)
-        arg = parts[1].strip().lower() if len(parts) > 1 else ""
-        if arg in ("beginner", "intermediate", "advanced"):
-            set_level(chat, st, arg)
-        else:
-            send_menu(chat, "Pick your level:", LEVEL_MENU)
-        return
     if low.startswith("/stats"):
-        # Silently ignored for everyone else, so users never learn it exists.
+        # Admin only and unadvertised, so users never learn it exists.
         if ADMIN_CHAT_ID and str(chat) == ADMIN_CHAT_ID:
             send(chat, stats.summary())
-        return
-    if low.startswith("/stop") or low.startswith("/new"):
-        reset(st)
-        send(chat, "Cleared. Send a <b>music file</b> to start.")
         return
 
     # While writing feedback, anything typed is the feedback itself - checked
@@ -614,15 +608,10 @@ def main():
         sys.exit("Telegram rejected the token: {}".format(me))
     print("Chorus worksheet bot online as @{}".format(me["result"]["username"]), flush=True)
 
-    # Populates the ☰ menu next to the text box, so the commands are
-    # discoverable instead of having to be known in advance.
-    tg("setMyCommands", commands=[
-        {"command": "start", "description": "How it works"},
-        {"command": "level", "description": "Change level (beginner / intermediate / advanced)"},
-        {"command": "new", "description": "Start a new song"},
-    ])
-    # The ☰ button itself, rather than the default one.
-    tg("setChatMenuButton", menu_button={"type": "commands"})
+    # No commands are advertised: everything is on the buttons. /start still
+    # works because Telegram sends it on first contact, and /stats is admin
+    # only and deliberately unlisted.
+    tg("setMyCommands", commands=[])
 
     offset = None
     while True:
