@@ -150,6 +150,7 @@ BTN_RETRY = "🔁 Try again"
 BTN_LEVEL = "🎚 Level"
 BTN_FACTS = "💡 About this song"
 BTN_HELP = "❓ How it works"
+BTN_FEEDBACK = "💬 Feedback"
 
 BTN_BEGINNER = "🌱 Beginner"
 BTN_INTERMEDIATE = "🎯 Intermediate"
@@ -172,8 +173,11 @@ def _keyboard(rows):
 MAIN_MENU = _keyboard([
     [BTN_NEW, BTN_RETRY],
     [BTN_LEVEL, BTN_FACTS],
-    [BTN_HELP],
+    [BTN_HELP, BTN_FEEDBACK],
 ])
+
+# Shown while the user is writing feedback, so Back is the way out.
+FEEDBACK_MENU = _keyboard([[BTN_BACK]])
 
 # Shown only while choosing a level, then the main menu comes back.
 LEVEL_MENU = _keyboard([
@@ -462,6 +466,20 @@ def show_facts(chat, st):
         "\n\n".join(parts)))
 
 
+def deliver_feedback(chat, msg, text):
+    """Pass a user's feedback to the admin, and keep a copy in the log."""
+    who = msg.get("from") or {}
+    name = " ".join(p for p in [who.get("first_name"), who.get("last_name")] if p)
+    handle = "@{}".format(who["username"]) if who.get("username") else "no username"
+
+    stats.record("feedback", chat, text=text[:2000])
+
+    if ADMIN_CHAT_ID:
+        send(int(ADMIN_CHAT_ID),
+             "💬 <b>Feedback</b>\nfrom {} ({}, id <code>{}</code>)\n\n{}".format(
+                 esc(name or "someone"), esc(handle), chat, esc(text[:3000])))
+
+
 def set_level(chat, st, level):
     st["level"] = level
     extra = "  You'll get a word bank to choose from." if level == "beginner" else ""
@@ -513,6 +531,21 @@ def handle(upd):
         send(chat, "Cleared. Send a <b>music file</b> to start.")
         return
 
+    # While writing feedback, anything typed is the feedback itself - checked
+    # before the menu below so a message that happens to match a button label
+    # still reaches us. Back is the way out.
+    if st.get("phase") == "feedback":
+        if text == BTN_BACK:
+            st["phase"] = st.pop("prev_phase", None)
+            send_menu(chat, "No problem — nothing sent.")
+        elif text:
+            deliver_feedback(chat, msg, text)
+            st["phase"] = st.pop("prev_phase", None)
+            send_menu(chat, "🙏 Thank you — that's been passed on.")
+        else:
+            send_menu(chat, "Type your message and I'll pass it on.", FEEDBACK_MENU)
+        return
+
     # Menu taps arrive as ordinary text, so they must be caught before the
     # answer grading below - otherwise tapping one mid-exercise would be
     # marked as a wrong answer.
@@ -540,6 +573,14 @@ def handle(upd):
         return
     if text == BTN_HELP:
         send(chat, WELCOME)
+        return
+    if text == BTN_FEEDBACK:
+        # Remember what they were doing, so an exercise in progress survives.
+        st["prev_phase"] = st.get("phase")
+        st["phase"] = "feedback"
+        send_menu(chat, "💬 What's on your mind? Anything at all — a bug, a song "
+                        "that didn't work, something you'd like it to do.\n\n"
+                        "Type it below and I'll pass it on.", FEEDBACK_MENU)
         return
 
     # a music file always starts a fresh exercise
