@@ -206,8 +206,23 @@ def summary():
 
     songs = Counter(r.get("song") for r in built if r.get("song"))
     if songs:
+        # Average score per track too: popularity alone does not say which
+        # songs people actually find hard.
+        per_song = {}
+        for r in graded:
+            song = r.get("song")
+            if song and r.get("total"):
+                got, out = per_song.get(song, (0, 0))
+                per_song[song] = (got + r.get("correct", 0), out + r["total"])
         lines += ["", "<b>Most practised</b>"]
-        lines += ["  {} × {}".format(n, song) for song, n in songs.most_common(5)]
+        for song, n in songs.most_common(8):
+            scored = per_song.get(song)
+            avg = "  ·  {}% avg".format(round(scored[0] / scored[1] * 100)) if scored and scored[1] else ""
+            lines.append("  {} × {}{}".format(n, song, avg))
+
+    unnamed = sum(1 for r in built if not r.get("song"))
+    if unnamed:
+        lines.append("  <i>({} from pasted lyrics, no title)</i>".format(unnamed))
 
     finished = (len(graded) / len(built) * 100) if built else 0
     lines += ["", "<i>{}% of exercises get finished.</i>".format(round(finished))]
