@@ -2,6 +2,7 @@
 .env
 
 # Written by stats.py. Real user activity and identities — never commit these.
+data/
 usage.jsonl
 users.jsonl
 

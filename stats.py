@@ -21,7 +21,12 @@ import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-DATA_DIR = os.getenv("CHORUS_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+# Defaults to a data/ folder beside the code, so there is nothing to configure
+# and the logs stay out of the project root. On a container host, register this
+# one path (usually /app/data) as a permanent path and the history survives
+# redeploys. CHORUS_DATA_DIR overrides it if you want it somewhere else.
+DATA_DIR = (os.getenv("CHORUS_DATA_DIR")
+            or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 LOG_PATH = os.path.join(DATA_DIR, "usage.jsonl")
 USERS_PATH = os.path.join(DATA_DIR, "users.jsonl")
 

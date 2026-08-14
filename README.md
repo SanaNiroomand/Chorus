@@ -97,10 +97,14 @@ Two optional variables:
   [@userinfobot](https://t.me/userinfobot)). With it set, `/stats` shows you
   usage: people, exercises built and finished, average score, level split and
   most-practised songs. For anyone else the command does nothing at all.
-- `CHORUS_DATA_DIR` — where the usage log is written. Point it at a path that
-  survives redeploys, otherwise the numbers reset on every deploy. Chat ids are
-  stored only as a short hash, so the log counts people without identifying
-  them.
+- `CHORUS_DATA_DIR` — where the logs are written. Defaults to `data/` beside the
+  code, so nothing needs setting. On a container host, register that one folder
+  (usually `/app/data`) as a permanent path and the history survives redeploys.
+
+`/stats` counts people using a hash of their chat id, so it never needs their
+identity. `/users` is separate and does keep names and ids, which is what makes
+"who has used this" answerable — both files sit in the data folder and are
+gitignored.
 
 ## How it fits together
 
