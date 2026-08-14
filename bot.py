@@ -509,6 +509,9 @@ def handle(upd):
     text = (msg.get("text") or "").strip()
     low = text.lower()
 
+    # Records a visitor once, the first time they say anything.
+    stats.seen(chat, msg.get("from"))
+
     # /start is the one command kept: Telegram sends it automatically the first
     # time someone opens the bot, so it cannot be replaced by a button.
     if low.startswith("/start"):
@@ -519,10 +522,14 @@ def handle(upd):
                         "Everything else is on the buttons below.".format(
                             LEVEL_LABEL.get(st.get("level"), "")))
         return
+    # Admin only and unadvertised, so users never learn these exist.
     if low.startswith("/stats"):
-        # Admin only and unadvertised, so users never learn it exists.
         if ADMIN_CHAT_ID and str(chat) == ADMIN_CHAT_ID:
             send(chat, stats.summary())
+        return
+    if low.startswith("/users"):
+        if ADMIN_CHAT_ID and str(chat) == ADMIN_CHAT_ID:
+            send(chat, stats.visitors_summary())
         return
 
     # While writing feedback, anything typed is the feedback itself - checked
